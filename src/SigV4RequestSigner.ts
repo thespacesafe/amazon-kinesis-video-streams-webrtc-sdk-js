@@ -1,4 +1,5 @@
-import crypto from 'isomorphic-webcrypto';
+// import crypto from 'isomorphic-webcrypto';
+import CryptoJS from 'crypto-js';
 
 import { QueryParams } from './QueryParams';
 import { RequestSigner } from './RequestSigner';
@@ -6,6 +7,34 @@ import { Credentials } from './SignalingClient';
 import { validateValueNonNil } from './internal/utils';
 
 type Headers = { [header: string]: string };
+
+
+class CryptoUtils {
+  static async sha256(message:string) {
+    const hash = CryptoJS.SHA256(message);
+    return hash.toString(CryptoJS.enc.Hex);
+  }
+
+  static async hmac(key:string|ArrayBuffer, message:string) {
+    const hmac = CryptoJS.HmacSHA256(message, key as string);
+    return hmac.toString(CryptoJS.enc.Hex);
+  }
+
+  static toUint8Array(input:any) {
+    const buf = new ArrayBuffer(input.length);
+    const bufView = new Uint8Array(buf);
+    for (let i = 0, strLen = input.length; i < strLen; i++) {
+      bufView[i] = input.charCodeAt(i);
+    }
+    return bufView;
+  }
+
+  static toHex(buffer:any) {
+    return Array.from(new Uint8Array(buffer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+}
 
 /**
  * Utility class for SigV4 signing requests. The AWS SDK cannot be used for this purpose because it does not have support for WebSocket endpoints.
@@ -109,11 +138,12 @@ export class SigV4RequestSigner implements RequestSigner {
         // Create signature
         const stringToSign = [SigV4RequestSigner.DEFAULT_ALGORITHM, datetimeString, credentialScope, canonicalRequestHash].join('\n');
         const signingKey = await this.getSignatureKey(dateString);
-        const signature = await SigV4RequestSigner.toHex(await SigV4RequestSigner.hmac(signingKey, stringToSign));
+        // const signature = await SigV4RequestSigner.toHex(await SigV4RequestSigner.hmac(signingKey, stringToSign));
+        const signature = await SigV4RequestSigner.hmac(signingKey, stringToSign);
 
         // Add signature to query params
         const signedQueryParams = Object.assign({}, canonicalQueryParams, {
-            'X-Amz-Signature': signature,
+            'X-Amz-Signature': signature as string,
         });
 
         // Create signed URL
@@ -126,7 +156,7 @@ export class SigV4RequestSigner implements RequestSigner {
      *
      * @see https://docs.aws.amazon.com/general/latest/gr/sigv4-calculate-signature.html
      */
-    private async getSignatureKey(dateString: string): Promise<ArrayBuffer> {
+    private async getSignatureKey(dateString: string): Promise<string | ArrayBuffer> {
         const kDate = await SigV4RequestSigner.hmac('AWS4' + this.credentials.secretAccessKey, dateString);
         const kRegion = await SigV4RequestSigner.hmac(kDate, this.region);
         const kService = await SigV4RequestSigner.hmac(kRegion, this.service);
@@ -172,44 +202,46 @@ export class SigV4RequestSigner implements RequestSigner {
     }
 
     private static async sha256(message: string): Promise<string> {
-        const hashBuffer = await crypto.subtle.digest({ name: 'SHA-256' }, this.toUint8Array(message));
-        return this.toHex(hashBuffer);
+        // const hashBuffer = await crypto.subtle.digest({ name: 'SHA-256' }, this.toUint8Array(message));
+        // return this.toHex(hashBuffer);
+        return CryptoUtils.sha256(message);
     }
 
-    private static async hmac(key: string | ArrayBuffer, message: string): Promise<ArrayBuffer> {
-        const keyBuffer = typeof key === 'string' ? this.toUint8Array(key).buffer : key;
-        const messageBuffer = this.toUint8Array(message).buffer;
-        const cryptoKey = await crypto.subtle.importKey(
-            'raw',
-            keyBuffer,
-            {
-                name: 'HMAC',
-                hash: {
-                    name: 'SHA-256',
-                },
-            },
-            false,
-            ['sign'],
-        );
-        return await crypto.subtle.sign({ name: 'HMAC', hash: { name: 'SHA-256' } }, cryptoKey, messageBuffer);
+    private static async hmac(key: string | ArrayBuffer, message: string): Promise<string | ArrayBuffer> {
+        // const keyBuffer = typeof key === 'string' ? this.toUint8Array(key).buffer : key;
+        // const messageBuffer = this.toUint8Array(message).buffer;
+        // const cryptoKey = await crypto.subtle.importKey(
+        //     'raw',
+        //     keyBuffer,
+        //     {
+        //         name: 'HMAC',
+        //         hash: {
+        //             name: 'SHA-256',
+        //         },
+        //     },
+        //     false,
+        //     ['sign'],
+        // );
+        // return await crypto.subtle.sign({ name: 'HMAC', hash: { name: 'SHA-256' } }, cryptoKey, messageBuffer);
+        return CryptoUtils.hmac(key, message);
     }
 
-    /**
-     * Note that this implementation does not work with two-byte characters.
-     * However, no inputs into a signed signaling service request should have two-byte characters.
-     */
-    private static toUint8Array(input: string): Uint8Array {
-        const buf = new ArrayBuffer(input.length);
-        const bufView = new Uint8Array(buf);
-        for (let i = 0, strLen = input.length; i < strLen; i++) {
-            bufView[i] = input.charCodeAt(i);
-        }
-        return bufView;
-    }
+    // /**
+    //  * Note that this implementation does not work with two-byte characters.
+    //  * However, no inputs into a signed signaling service request should have two-byte characters.
+    //  */
+    // private static toUint8Array(input: string): Uint8Array {
+    //     const buf = new ArrayBuffer(input.length);
+    //     const bufView = new Uint8Array(buf);
+    //     for (let i = 0, strLen = input.length; i < strLen; i++) {
+    //         bufView[i] = input.charCodeAt(i);
+    //     }
+    //     return bufView;
+    // }
 
-    private static toHex(buffer: ArrayBuffer): string {
-        return Array.from(new Uint8Array(buffer))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('');
-    }
+    // private static toHex(buffer: ArrayBuffer): string {
+    //     return Array.from(new Uint8Array(buffer))
+    //         .map((b) => b.toString(16).padStart(2, '0'))
+    //         .join('');
+    // }
 }
